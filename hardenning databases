@@ -1,0 +1,73 @@
+---
+- name: Database Security Hardening
+  hosts: localhost
+  become: yes
+  vars:
+    db_user: "test1"
+    db_pass: "juniper@123"
+    db_root_pass: "juniper@123"
+    allowed_hosts: "127.0.0.1"
+
+  tasks:
+    - name: Ensure MySQL/PSQL is installed
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - mariadb-server
+        - postgresql
+
+    - name: Set MySQL root password
+      mysql_user:
+        name: root
+        host: "{{ allowed_hosts }}"
+        password: "{{ db_root_pass }}"
+        column_case_sensitive: true
+      when: ansible_os_family == "Debian"
+
+    - name: Remove anonymous users (MySQL only)
+      mysql_user:
+        name: ""
+        host_all: true
+        state: absent
+        column_case_sensitive: true
+      when: ansible_os_family == "Debian"
+
+    - name: Disallow root login remotely (MySQL only)
+      mysql_user:
+        name: root
+        host: "{{ item }}"
+        state: present
+        password: "{{ db_root_pass }}"
+        column_case_sensitive: true
+      with_items:
+        - 127.0.0.1
+        - ::1
+        - localhost
+      when: ansible_os_family == "Debian"
+
+    - name: Remove test database and access to it (MySQL only)
+      mysql_db:
+        name: test
+        state: absent
+      when: ansible_os_family == "Debian"
+
+    - name: Configure PostgreSQL to allow only local connections
+      lineinfile:
+        path: /etc/postgresql/12/main/pg_hba.conf
+        regexp: '^host'
+        line: 'host    all             all             {{ allowed_hosts }}/32            md5'
+        create: yes
+      notify: restart postgresql
+      when: ansible_os_family == "Debian"
+
+  handlers:
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+    - name: restart mysql
+      service:
+        name: mysql
+        state: restarted
